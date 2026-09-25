@@ -52,6 +52,13 @@ class EngineTests(unittest.TestCase):
         self.e.stop()
         self.assertEqual((self.m.downs, self.m.ups), (1, 1))
 
+    def test_reaches_1000_per_second(self):
+        self.e.cps = 1000
+        self.e.start()
+        time.sleep(1.0)
+        self.e.stop()
+        self.assertTrue(900 <= self.m.downs <= 1010, self.m.downs)
+
     def test_speed_is_clamped(self):
         self.e.cps = 10_000
         self.e.start()
@@ -134,22 +141,25 @@ class AppTests(unittest.TestCase):
         d = self.app.dial
         c = d.size / 2
         drag = lambda x, y: d._drag(type("E", (), {"x": x, "y": y})())
-        drag(c, 5)                     # straight up: middle of the range
-        self.assertAlmostEqual(self.app.cps.get(), 50, delta=1)
+        drag(c, 5)                     # straight up: middle of the log scale, sqrt(1000) ~ 32
+        self.assertAlmostEqual(self.app.cps.get(), 32, delta=1)
         drag(c - 60, c + 60)           # lower left: minimum
         self.assertEqual(self.app.cps.get(), 1)
         drag(c + 60, c + 60)           # lower right: maximum
-        self.assertEqual(self.app.cps.get(), 100)
+        self.assertEqual(self.app.cps.get(), 1000)
         drag(c - 5, d.size - 2)        # dead zone at the bottom, left of centre: snaps to minimum
         self.assertEqual(self.app.cps.get(), 1)
         drag(c + 5, d.size - 2)        # right of centre: snaps to maximum
-        self.assertEqual(self.app.cps.get(), 100)
+        self.assertEqual(self.app.cps.get(), 1000)
 
     def test_dial_and_box_share_one_value(self):
         self.app.cps.set(42)
         self.assertEqual(self.app.engine.cps, 42)
-        self.app.dial._step(1)
-        self.assertEqual(self.app.cps.get(), 43)
+        self.app.dial._step(1)         # wheel notch is ~5%: 42 -> 44
+        self.assertEqual(self.app.cps.get(), 44)
+        self.app.cps.set(3)
+        self.app.dial._step(-1)        # never less than 1 per notch
+        self.assertEqual(self.app.cps.get(), 2)
 
 
 if __name__ == "__main__":

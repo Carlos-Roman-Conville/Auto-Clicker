@@ -23,7 +23,8 @@ VK_F4 = 0x73
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 
-MIN_CPS, MAX_CPS = 1, 100
+MIN_CPS, MAX_CPS = 1, 1000
+SPIN = 0.002  # seconds; gaps shorter than this are timed by spinning instead of sleeping
 SETTINGS = Path(__file__).with_name("settings.json")
 
 BG = "#1b1f24"
@@ -91,16 +92,20 @@ class ClickEngine:
                 self.release()
                 next_at += 1 / max(MIN_CPS, min(MAX_CPS, self.cps))
                 delay = next_at - time.perf_counter()
-                if delay > 0:
-                    self._stop.wait(delay)
-                else:
+                if delay <= 0:
                     next_at = time.perf_counter()  # fell behind; don't burst to catch up
+                    continue
+                if delay > SPIN:
+                    self._stop.wait(delay - SPIN)  # sleep most of the gap
+                while time.perf_counter() < next_at and not self._stop.is_set():
+                    time.sleep(0)  # spin the last stretch: sleep alone can't hit sub-millisecond gaps
         finally:
             winmm.timeEndPeriod(1)
 
 
 class Dial(tk.Canvas):
-    """Rotary knob bound to an IntVar. Drag to turn, mouse wheel for single steps."""
+    """Rotary knob bound to an IntVar. Drag to turn, mouse wheel to nudge.
+    The scale is logarithmic (1 -> ~32 at the top -> 1000) so slow speeds stay easy to pick."""
 
     SWEEP_START, SWEEP = 225, 270  # degrees, clockwise from the lower left
 
@@ -124,9 +129,16 @@ class Dial(tk.Canvas):
         except (tk.TclError, ValueError):
             return self.lo
 
+    def _frac(self, v):
+        return math.log(v / self.lo) / math.log(self.hi / self.lo)
+
+    def _from_frac(self, f):
+        return round(self.lo * (self.hi / self.lo) ** f)
+
     def _step(self, d):
         if self.enabled:
-            self.var.set(max(self.lo, min(self.hi, self._value() + d)))
+            v = self._value()
+            self.var.set(max(self.lo, min(self.hi, v + d * max(1, round(v * 0.05)))))  # ~5% per notch
 
     def _drag(self, e):
         if not self.enabled:
@@ -136,13 +148,13 @@ class Dial(tk.Canvas):
         along = (self.SWEEP_START - ang) % 360  # clockwise distance from the start of the sweep
         if along > self.SWEEP:  # dead zone at the bottom: snap to the nearer end
             along = 0 if along > self.SWEEP + (360 - self.SWEEP) / 2 else self.SWEEP
-        self.var.set(round(self.lo + along / self.SWEEP * (self.hi - self.lo)))
+        self.var.set(self._from_frac(along / self.SWEEP))
 
     def draw(self):
         self.delete("all")
         s, pad = self.size, 14
         v = self._value()
-        frac = (v - self.lo) / (self.hi - self.lo)
+        frac = self._frac(v)
         color = ACCENT if self.enabled else TRACK
         box = (pad, pad, s - pad, s - pad)
         self.create_arc(*box, start=self.SWEEP_START, extent=-self.SWEEP, style="arc", outline=TRACK, width=10)
@@ -194,7 +206,7 @@ class App:
         self.spin = tk.Spinbox(spin_row, from_=MIN_CPS, to=MAX_CPS, textvariable=self.cps, width=5, justify="center",
                                font=("Segoe UI", 11), bg=BG, fg=TEXT, buttonbackground=TRACK, insertbackground=TEXT,
                                disabledbackground=BG, disabledforeground=TRACK, relief="flat", validate="key",
-                               validatecommand=(root.register(lambda s: s == "" or s.isdigit() and len(s) <= 3), "%P"))
+                               validatecommand=(root.register(lambda s: s == "" or s.isdigit() and len(s) <= 4), "%P"))
         self.spin.pack(side="left")
         self.spin.bind("<FocusOut>", lambda e: self._clamp())
         self.spin.bind("<Return>", lambda e: self._clamp())

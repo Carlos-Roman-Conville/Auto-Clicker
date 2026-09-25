@@ -9,9 +9,10 @@ A small desktop auto-clicker with a safety. Replaces the old Speed Clicker.
 Double-click `run.bat`.
 
 1. Pick a mode:
-   - **Auto click**: clicks the left button over and over at the speed on the dial (1 to 100 per second).
+   - **Auto click**: clicks the left button over and over at the speed on the dial (1 to 1000 per second).
    - **Hold down**: presses the left button and keeps it held. The speed controls grey out because they don't apply.
-2. Set the speed with the dial (drag it or use the mouse wheel) or the number box (arrows or type a number).
+2. Set the speed with the dial or the number box. The dial is stretched so slow speeds are easy to pick: 10 sits a third of the
+   way round, about 30 at the top, 1000 at the end. The mouse wheel nudges it about 5% per notch. For an exact number, type it in the box.
 3. Click **Activate**. Nothing clicks yet. The clicker is armed and the button turns amber.
 4. Press **F4** to start. Press **F4** again to stop. The button turns green while it's clicking.
 
@@ -30,5 +31,8 @@ Windows and Python 3.10 or newer. Nothing to install: it only uses Python's stan
 
 - `clicker.py`: `ClickEngine` does the clicking on a background thread. `Dial` is the rotary knob (a tkinter Canvas). `App` is the window, the F4 polling and the arm/start state.
 - F4 is read with `GetAsyncKeyState` every 15 ms, so it works while another window has focus. It only acts on the moment the key goes down, not while it's held.
-- Clicks go out through `user32.mouse_event`. `timeBeginPeriod(1)` runs while clicking so high speeds stay accurate.
+- Clicks go out through `user32.mouse_event` (about 0.09 ms per click, so 1000/s has plenty of headroom).
+- Timing: it sleeps most of each gap and spins the last 2 ms (`SPIN`), because Windows sleep can't hit sub-millisecond gaps.
+  At high speeds that keeps one CPU core busy while clicking; it idles again the moment you stop.
+- The dial is logarithmic (`Dial._frac` / `_from_frac`). The range lives in `MIN_CPS` / `MAX_CPS`.
 - Tests: `python -m unittest test_clicker -v`. The tests replace the mouse and the F4 key with fakes, so they never click on your screen.
