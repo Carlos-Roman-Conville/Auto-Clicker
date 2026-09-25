@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 settings.json
 _test_settings.json
+build/
+dist/
+*.spec
+Clicker.exe
